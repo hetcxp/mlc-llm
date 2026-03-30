@@ -1,4 +1,4 @@
-name: Build MLC-Engine for S25 (v9)
+name: Build MLC-Engine for S25 (v10)
 on: [workflow_dispatch]
 
 jobs:
@@ -34,7 +34,7 @@ jobs:
       - name: Configure and Build
         run: |
           mkdir build && cd build
-          # FLAGS AGRESIVOS: Desactivamos todo lo que cause ruido en el linkeo
+          # FLAGS AGRESIVOS: Desactivamos libbacktrace y forzamos la creación del ejecutable
           cmake .. \
             -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=arm64-v8a \
@@ -47,22 +47,20 @@ jobs:
             -DTVM_BACKTRACE_ON_SEGFAULT=OFF \
             -DMLC_LLM_BUILD_EXECUTABLE=ON
           
-          # Intentamos construir los dos posibles nombres del binario
-          make mlc_chat_cli -j$(nproc) || make mlc_llm_cli -j$(nproc) || make all -j$(nproc)
+          # Forzamos la compilación del binario CLI específico (el "cuerpo" que nos faltaba)
+          make mlc_chat_cli -j$(nproc)
           
       - name: Find and Prepare Binary
         if: always()
         run: |
-          # Si no se creó el ejecutable, buscamos las librerías .so que sí vimos en tu log
-          # Esto nos servirá para saber si al menos el motor 'runtime' está vivo
-          echo "Buscando ejecutables..."
-          find build/ -type f -executable -name "mlc*" -exec cp {} build/mlc_engine \; || true
-          
-          if [ -f "build/mlc_engine" ]; then
-            echo "¡ÉXITO! Binario encontrado."
+          # Buscamos el binario generado y lo renombramos para que sea fácil de identificar
+          if [ -f "build/mlc_chat_cli" ]; then
+            cp build/mlc_chat_cli build/mlc_engine
+            echo "¡ÉXITO! Ejecutable encontrado y preparado."
           else
-            echo "No se encontró ejecutable. Mostrando mapa de archivos .so generados:"
-            find build/ -name "*.so"
+            echo "No se encontró el ejecutable mlc_chat_cli. Listando archivos para debug:"
+            find build/ -maxdepth 3 -type f -executable
+            exit 1
           fi
 
       - name: Upload Binary
