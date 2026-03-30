@@ -1,4 +1,42 @@
-- name: Configure and Build
+name: Build MLC-Engine for S25 (v7)
+on: [workflow_dispatch]
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Descarga del código fuente y submódulos (TVM, Tokenizers, etc.)
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      # 2. Configuración del NDK de Android (Versión estable r26b)
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26b 
+          add-to-path: true
+
+      # 3. Preparación de Rust para compilación cruzada a Android
+      - name: Setup Rust for Android
+        run: |
+          rustup target add aarch64-linux-android
+
+      # 4. Instalación de dependencias del sistema y Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install cmake
+          sudo apt-get update && sudo apt-get install -y build-essential git
+
+      # 5. Configuración y Compilación
+      - name: Configure and Build
         run: |
           mkdir build && cd build
           cmake .. \
@@ -10,25 +48,29 @@
             -DCMAKE_BUILD_TYPE=Release \
             -DTVM_FFI_USE_LIBBACKTRACE=OFF
           
-          # Forzamos la creación del binario de CLI específicamente
-          # En la versión 0.2.2 el target suele ser mlc_llm_cli
+          # Intentamos compilar el CLI específicamente; si falla, compilamos todo
           make mlc_llm_cli -j$(nproc) || make all -j$(nproc)
           
+      # 6. Depuración: Listado de archivos (por si el binario cambia de lugar)
       - name: Debug - List all files
-        run: ls -R build/ # Esto nos dirá en el log dónde quedó el archivo si falla
+        run: ls -R build/
 
+      # 7. Localización y preparación del binario ejecutable
       - name: Find and Prepare Binary
         run: |
-          # Buscamos cualquier cosa que sea un ejecutable y que NO sea una carpeta
-          # El S25 necesita el binario puro
+          # Buscamos cualquier archivo ejecutable que empiece con "mlc"
+          # Evitamos directorios y tomamos el primer resultado válido
           EXECUTABLE=$(find build/ -type f -executable -name "mlc*" | head -n 1)
+          
           if [ -z "$EXECUTABLE" ]; then
-            echo "ERROR: No se encontró ningún binario ejecutable."
+            echo "ERROR: No se encontró ningún binario ejecutable de MLC."
             exit 1
           fi
+          
           cp "$EXECUTABLE" build/mlc_engine
-          echo "Binario encontrado en $EXECUTABLE y copiado a build/mlc_engine"
+          echo "Binario encontrado en $EXECUTABLE y preparado en build/mlc_engine"
 
+      # 8. Carga del artefacto final para descargar en tu Mac
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
