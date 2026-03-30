@@ -1,4 +1,4 @@
-name: Build MLC-Engine for S25 (v10)
+name: Build MLC-Engine for S25 (v11)
 on: [workflow_dispatch]
 
 jobs:
@@ -34,7 +34,7 @@ jobs:
       - name: Configure and Build
         run: |
           mkdir build && cd build
-          # FLAGS AGRESIVOS: Desactivamos libbacktrace y forzamos la creación del ejecutable
+          # FLAGS REFORZADOS: Aseguramos que se intente construir el CLI
           cmake .. \
             -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=arm64-v8a \
@@ -45,21 +45,28 @@ jobs:
             -DUSE_LIBBACKTRACE=OFF \
             -DTVM_FFI_USE_LIBBACKTRACE=OFF \
             -DTVM_BACKTRACE_ON_SEGFAULT=OFF \
-            -DMLC_LLM_BUILD_EXECUTABLE=ON
+            -DMLC_LLM_BUILD_EXECUTABLE=ON \
+            -DMLC_LLM_BUILD_CLI=ON
           
-          # Forzamos la compilación del binario CLI específico (el "cuerpo" que nos faltaba)
-          make mlc_chat_cli -j$(nproc)
+          # Intentamos construir todo. 'make' decidirá el nombre correcto del binario.
+          make -j$(nproc)
           
       - name: Find and Prepare Binary
         if: always()
         run: |
-          # Buscamos el binario generado y lo renombramos para que sea fácil de identificar
-          if [ -f "build/mlc_chat_cli" ]; then
-            cp build/mlc_chat_cli build/mlc_engine
-            echo "¡ÉXITO! Ejecutable encontrado y preparado."
+          # Buscamos en todo el directorio de trabajo cualquier archivo ejecutable
+          # que empiece por 'mlc' y que sea para arquitectura ARM/Android.
+          echo "Iniciando búsqueda profunda de binarios..."
+          
+          # Esta línea busca el binario y lo copia a la raíz de build
+          find . -type f -executable -name "mlc*" ! -path "*/CMakeFiles/*" -exec cp {} build/mlc_engine \; || true
+          
+          if [ -f "build/mlc_engine" ]; then
+            echo "¡ÉXITO! Binario encontrado y normalizado a build/mlc_engine"
+            ls -lh build/mlc_engine
           else
-            echo "No se encontró el ejecutable mlc_chat_cli. Listando archivos para debug:"
-            find build/ -maxdepth 3 -type f -executable
+            echo "ERROR: No se encontró el ejecutable. Mostrando todos los ejecutables encontrados:"
+            find . -type f -executable
             exit 1
           fi
 
@@ -71,3 +78,4 @@ jobs:
             build/mlc_engine
             build/*.so
             build/tvm/*.so
+            build/lib/*.so
