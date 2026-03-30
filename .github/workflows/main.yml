@@ -1,30 +1,26 @@
-name: Build MLC-Engine for S25 (v7)
+name: Build MLC-Engine for S25 (v8)
 on: [workflow_dispatch]
 
 jobs:
   build-android:
     runs-on: ubuntu-latest
     steps:
-      # 1. Descarga del código fuente y submódulos (TVM, Tokenizers, etc.)
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
 
-      # 2. Configuración del NDK de Android (Versión estable r26b)
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r26b 
           add-to-path: true
 
-      # 3. Preparación de Rust para compilación cruzada a Android
       - name: Setup Rust for Android
         run: |
           rustup target add aarch64-linux-android
 
-      # 4. Instalación de dependencias del sistema y Python
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -35,10 +31,10 @@ jobs:
           python -m pip install cmake
           sudo apt-get update && sudo apt-get install -y build-essential git
 
-      # 5. Configuración y Compilación
       - name: Configure and Build
         run: |
           mkdir build && cd build
+          # Añadimos flags extra para matar a libbacktrace definitivamente
           cmake .. \
             -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=arm64-v8a \
@@ -46,31 +42,33 @@ jobs:
             -DUSE_VULKAN=ON \
             -DUSE_OPENCL=ON \
             -DCMAKE_BUILD_TYPE=Release \
-            -DTVM_FFI_USE_LIBBACKTRACE=OFF
+            -DUSE_LIBBACKTRACE=OFF \
+            -DTVM_FFI_USE_LIBBACKTRACE=OFF \
+            -DTVM_BACKTRACE_ON_SEGFAULT=OFF
           
-          # Intentamos compilar el CLI específicamente; si falla, compilamos todo
+          # Intentamos compilar el ejecutable. 
+          # Si falla el target específico, intentamos el general.
           make mlc_llm_cli -j$(nproc) || make all -j$(nproc)
           
-      # 6. Depuración: Listado de archivos (por si el binario cambia de lugar)
       - name: Debug - List all files
+        if: always() # Esto se ejecutará aunque falle el paso anterior
         run: ls -R build/
 
-      # 7. Localización y preparación del binario ejecutable
       - name: Find and Prepare Binary
         run: |
-          # Buscamos cualquier archivo ejecutable que empiece con "mlc"
-          # Evitamos directorios y tomamos el primer resultado válido
+          # Buscamos de forma recursiva cualquier ejecutable que empiece con mlc
           EXECUTABLE=$(find build/ -type f -executable -name "mlc*" | head -n 1)
           
           if [ -z "$EXECUTABLE" ]; then
-            echo "ERROR: No se encontró ningún binario ejecutable de MLC."
+            echo "ERROR: No se encontró ningún binario ejecutable."
+            # Listamos ejecutables para ver qué se creó realmente
+            find build/ -type f -executable
             exit 1
           fi
           
           cp "$EXECUTABLE" build/mlc_engine
           echo "Binario encontrado en $EXECUTABLE y preparado en build/mlc_engine"
 
-      # 8. Carga del artefacto final para descargar en tu Mac
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
