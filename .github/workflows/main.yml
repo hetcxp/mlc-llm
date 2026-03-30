@@ -1,0 +1,44 @@
+name: Build MLC-CLI for S25
+on: [workflow_dispatch] # Para que lo dispares tú manualmente
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27 # Versión estable para 2026
+          add-to-path: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install cmake
+          sudo apt-get update && sudo apt-get install -y build-essential
+
+      - name: Configure and Build
+        run: |
+          mkdir build && cd build
+          cmake .. \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-28 \
+            -DUSE_VULKAN=ON \
+            -DUSE_OPENCL=ON
+          make mlc_cli -j$(nproc)
+
+      - name: Upload Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlc-cli-android-s25
+          path: build/mlc_cli
