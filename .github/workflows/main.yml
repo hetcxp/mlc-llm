@@ -1,25 +1,28 @@
-name: Build MLC-Engine for S25
+name: Build MLC-Engine for S25 (v5)
 on: [workflow_dispatch]
 
 jobs:
   build-android:
     runs-on: ubuntu-latest
     steps:
-      # 1. Bajamos el código y sus "hijos" (submódulos)
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
 
-      # 2. Preparamos el "traductor" para Android (NDK)
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r26b 
           add-to-path: true
 
-      # 3. Instalamos las herramientas de construcción
+      # --- LA PIEZA QUE FALTABA ---
+      - name: Setup Rust for Android
+        run: |
+          rustup target add aarch64-linux-android
+      # ----------------------------
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -30,7 +33,6 @@ jobs:
           python -m pip install cmake
           sudo apt-get update && sudo apt-get install -y build-essential git
 
-      # 4. El proceso de "cocina" (Compilación)
       - name: Configure and Build
         run: |
           mkdir build && cd build
@@ -42,20 +44,16 @@ jobs:
             -DUSE_OPENCL=ON \
             -DCMAKE_BUILD_TYPE=Release
           
-          # Intentamos compilar el motor principal
-          # Si el target cambió, 'make' nos dirá qué hay disponible
+          # Compilamos todo el proyecto
           make -j$(nproc)
           
-      # 5. Localizamos el ejecutable (la técnica del 'hacker')
       - name: Find and Prepare Binary
         run: |
-          # Buscamos cualquier archivo ejecutable que empiece con 'mlc'
-          # y lo normalizamos a un solo nombre para tu S25
+          # Buscamos cualquier ejecutable mlc* (como mlc_llm_cli) y lo normalizamos
           find build/ -maxdepth 3 -type f -executable -name "mlc*" -exec cp {} build/mlc_engine \;
-          echo "Binario encontrado y preparado en: build/mlc_engine"
+          echo "Binario encontrado y preparado."
           ls -lh build/mlc_engine
 
-      # 6. Te lo entregamos para descargar
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
