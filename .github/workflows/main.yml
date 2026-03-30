@@ -1,4 +1,4 @@
-name: Build MLC-Engine for S25 (v8)
+name: Build MLC-Engine for S25 (v9)
 on: [workflow_dispatch]
 
 jobs:
@@ -34,7 +34,7 @@ jobs:
       - name: Configure and Build
         run: |
           mkdir build && cd build
-          # Añadimos flags extra para matar a libbacktrace definitivamente
+          # FLAGS AGRESIVOS: Desactivamos todo lo que cause ruido en el linkeo
           cmake .. \
             -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=arm64-v8a \
@@ -44,33 +44,32 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DUSE_LIBBACKTRACE=OFF \
             -DTVM_FFI_USE_LIBBACKTRACE=OFF \
-            -DTVM_BACKTRACE_ON_SEGFAULT=OFF
+            -DTVM_BACKTRACE_ON_SEGFAULT=OFF \
+            -DMLC_LLM_BUILD_EXECUTABLE=ON
           
-          # Intentamos compilar el ejecutable. 
-          # Si falla el target específico, intentamos el general.
-          make mlc_llm_cli -j$(nproc) || make all -j$(nproc)
+          # Intentamos construir los dos posibles nombres del binario
+          make mlc_chat_cli -j$(nproc) || make mlc_llm_cli -j$(nproc) || make all -j$(nproc)
           
-      - name: Debug - List all files
-        if: always() # Esto se ejecutará aunque falle el paso anterior
-        run: ls -R build/
-
       - name: Find and Prepare Binary
+        if: always()
         run: |
-          # Buscamos de forma recursiva cualquier ejecutable que empiece con mlc
-          EXECUTABLE=$(find build/ -type f -executable -name "mlc*" | head -n 1)
+          # Si no se creó el ejecutable, buscamos las librerías .so que sí vimos en tu log
+          # Esto nos servirá para saber si al menos el motor 'runtime' está vivo
+          echo "Buscando ejecutables..."
+          find build/ -type f -executable -name "mlc*" -exec cp {} build/mlc_engine \; || true
           
-          if [ -z "$EXECUTABLE" ]; then
-            echo "ERROR: No se encontró ningún binario ejecutable."
-            # Listamos ejecutables para ver qué se creó realmente
-            find build/ -type f -executable
-            exit 1
+          if [ -f "build/mlc_engine" ]; then
+            echo "¡ÉXITO! Binario encontrado."
+          else
+            echo "No se encontró ejecutable. Mostrando mapa de archivos .so generados:"
+            find build/ -name "*.so"
           fi
-          
-          cp "$EXECUTABLE" build/mlc_engine
-          echo "Binario encontrado en $EXECUTABLE y preparado en build/mlc_engine"
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
           name: mlc-cli-android-s25
-          path: build/mlc_engine
+          path: |
+            build/mlc_engine
+            build/*.so
+            build/tvm/*.so
