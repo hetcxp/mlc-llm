@@ -1,4 +1,4 @@
-name: Build MLC-Engine for S25 (v5)
+name: Build MLC-Engine for S25 (v6)
 on: [workflow_dispatch]
 
 jobs:
@@ -17,11 +17,9 @@ jobs:
           ndk-version: r26b 
           add-to-path: true
 
-      # --- LA PIEZA QUE FALTABA ---
       - name: Setup Rust for Android
         run: |
           rustup target add aarch64-linux-android
-      # ----------------------------
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -42,14 +40,13 @@ jobs:
             -DANDROID_PLATFORM=android-28 \
             -DUSE_VULKAN=ON \
             -DUSE_OPENCL=ON \
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTVM_FFI_USE_LIBBACKTRACE=OFF # DESACTIVA EL COMPONENTE PROBLEMÁTICO
           
-          # Compilamos todo el proyecto
           make -j$(nproc)
           
       - name: Find and Prepare Binary
         run: |
-          # Buscamos cualquier ejecutable mlc* (como mlc_llm_cli) y lo normalizamos
           find build/ -maxdepth 3 -type f -executable -name "mlc*" -exec cp {} build/mlc_engine \;
           echo "Binario encontrado y preparado."
           ls -lh build/mlc_engine
