@@ -1,6 +1,40 @@
-- name: Configure and Build
+name: Build MLC-Engine for S25 (v9)
+on: [workflow_dispatch]
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26b 
+          add-to-path: true
+
+      - name: Setup Rust for Android
+        run: |
+          rustup target add aarch64-linux-android
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install cmake
+          sudo apt-get update && sudo apt-get install -y build-essential git
+
+      - name: Configure and Build
         run: |
           mkdir build && cd build
+          # FLAGS AGRESIVOS: Desactivamos todo lo que cause ruido en el linkeo
           cmake .. \
             -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=arm64-v8a \
@@ -8,17 +42,28 @@
             -DUSE_VULKAN=ON \
             -DUSE_OPENCL=ON \
             -DCMAKE_BUILD_TYPE=Release \
+            -DUSE_LIBBACKTRACE=OFF \
             -DTVM_FFI_USE_LIBBACKTRACE=OFF \
+            -DTVM_BACKTRACE_ON_SEGFAULT=OFF \
             -DMLC_LLM_BUILD_EXECUTABLE=ON
           
-          # Construimos el chat_cli que es el más robusto para Android
-          make mlc_chat_cli -j$(nproc)
+          # Intentamos construir los dos posibles nombres del binario
+          make mlc_chat_cli -j$(nproc) || make mlc_llm_cli -j$(nproc) || make all -j$(nproc)
           
       - name: Find and Prepare Binary
+        if: always()
         run: |
-          # Buscamos el binario específico en la carpeta de salida
-          cp build/mlc_chat_cli build/mlc_engine
-          echo "Ejecutable creado con éxito."
+          # Si no se creó el ejecutable, buscamos las librerías .so que sí vimos en tu log
+          # Esto nos servirá para saber si al menos el motor 'runtime' está vivo
+          echo "Buscando ejecutables..."
+          find build/ -type f -executable -name "mlc*" -exec cp {} build/mlc_engine \; || true
+          
+          if [ -f "build/mlc_engine" ]; then
+            echo "¡ÉXITO! Binario encontrado."
+          else
+            echo "No se encontró ejecutable. Mostrando mapa de archivos .so generados:"
+            find build/ -name "*.so"
+          fi
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4
@@ -28,7 +73,3 @@
             build/mlc_engine
             build/*.so
             build/tvm/*.so
-
-**Héctor, hacé este último intento.** Si el `make mlc_chat_cli` llega al final, el ZIP nuevo tendrá un archivo llamado `mlc_engine` que NO termina en `.so`. Ese es el que necesitamos.
-
-¿Te parece si lanzamos esta última y, mientras corre, me contás cuál sería el primer reto "picante" en alemán para el Juego de la Oca?
